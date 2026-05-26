@@ -1,0 +1,932 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DeepSeek 缓存 & 余额监控</title>
+<style>
+  /* ========== GLOBAL RESET ========== */
+  *{margin:0;padding:0;box-sizing:border-box}
+
+  :root {
+    --bg: #0f1117;
+    --panel: #1a1d28;
+    --card: #212430;
+    --border: #2a2e3d;
+    --accent: #4facfe;
+    --accent2: #00f2fe;
+    --green: #2ed573;
+    --yellow: #ffa502;
+    --red: #ff4757;
+    --text: #e8eaf0;
+    --dim: #8a8fa8;
+    --radius: 12px;
+  }
+
+  body {
+    margin:0; padding:0;
+    background: var(--bg);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+    color: var(--text);
+    overflow-x: hidden;
+    overflow-y: auto;
+    user-select: none;
+    display: flex;
+    justify-content: center;
+  }
+
+  /* ========== WIDGET PANEL (was floating-window) ========== */
+  #floating-window {
+    width: 380px;
+    max-width: 100%;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: 0 8px 40px rgba(0,0,0,0.6), 0 0 0 1px rgba(79,172,254,0.08);
+    overflow: hidden;
+    margin: 20px 0;
+  }
+  #floating-window:hover {
+    box-shadow: 0 8px 48px rgba(0,0,0,0.7), 0 0 0 1px rgba(79,172,254,0.15);
+  }
+
+  /* ========== TITLE BAR ========== */
+  #titlebar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 14px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    cursor: grab;
+    font-size: 13px;
+    font-weight: 600;
+  }
+  #titlebar:active { cursor: grabbing; }
+  #titlebar .brand {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  #titlebar .brand svg { width: 18px; height: 18px; }
+  #titlebar .brand span { background: linear-gradient(135deg, var(--accent), var(--accent2)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+  #titlebar-actions { display: flex; gap: 6px; }
+  .tb-btn {
+    width: 22px; height: 22px;
+    border-radius: 6px;
+    border: none;
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 12px;
+    transition: background 0.2s;
+    background: var(--card);
+    color: var(--dim);
+    line-height: 1;
+  }
+  .tb-btn:hover { background: var(--border); color: var(--text); }
+  #btn-close:hover { background: var(--red); color: white; }
+
+  /* ========== BODY ========== */
+  #body {
+    padding: 14px;
+    max-height: 520px;
+    overflow-y: auto;
+  }
+  #body::-webkit-scrollbar { width: 4px; }
+  #body::-webkit-scrollbar-track { background: transparent; }
+  #body::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  /* ========== API KEY INPUT ========== */
+  #setup-section {
+    background: var(--card);
+    border-radius: 10px;
+    padding: 16px;
+    margin-bottom: 12px;
+    border: 1px solid var(--border);
+  }
+  #setup-section h3 { font-size: 13px; color: var(--dim); margin-bottom: 10px; font-weight: 500; }
+  #key-input-row {
+    display: flex;
+    gap: 8px;
+  }
+  #api-key-input {
+    flex: 1;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 8px 12px;
+    color: var(--text);
+    font-size: 12px;
+    font-family: 'SFMono-Regular', Consolas, monospace;
+    outline: none;
+    transition: border-color 0.2s;
+  }
+  #api-key-input:focus { border-color: var(--accent); }
+  #api-key-input::placeholder { color: var(--dim); font-family: inherit; font-size: 11px; }
+  #btn-save-key {
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    border: none;
+    border-radius: 8px;
+    padding: 8px 16px;
+    color: #fff;
+    font-weight: 600;
+    font-size: 12px;
+    cursor: pointer;
+    transition: opacity 0.2s;
+    white-space: nowrap;
+  }
+  #btn-save-key:hover { opacity: 0.85; }
+
+  /* ========== STATUS BADGE ========== */
+  #status-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
+    font-size: 11px;
+    color: var(--dim);
+  }
+  #status-indicator {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  #status-dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: var(--dim);
+    transition: background 0.3s;
+  }
+  #status-dot.online { background: var(--green); box-shadow: 0 0 6px rgba(46,213,115,0.4); }
+  #status-dot.error { background: var(--red); box-shadow: 0 0 6px rgba(255,71,87,0.4); }
+  #status-dot.loading { background: var(--yellow); animation: pulse 1s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+  #last-update { font-size: 10px; }
+
+  /* ========== CARDS GRID ========== */
+  .grid-2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin-bottom: 10px;
+  }
+  .grid-1 { margin-bottom: 10px; }
+
+  .metric-card {
+    background: var(--card);
+    border-radius: 10px;
+    padding: 12px 14px;
+    border: 1px solid var(--border);
+    transition: border-color 0.2s;
+  }
+  .metric-card:hover { border-color: rgba(79,172,254,0.2); }
+  .metric-label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--dim);
+    margin-bottom: 4px;
+  }
+  .metric-value {
+    font-size: 22px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.2;
+  }
+  .metric-sub {
+    font-size: 11px;
+    color: var(--dim);
+    margin-top: 2px;
+  }
+  .metric-value.accent { color: var(--accent); }
+  .metric-value.green { color: var(--green); }
+  .metric-value.yellow { color: var(--yellow); }
+  .metric-value.red { color: var(--red); }
+
+  /* ========== CACHE BAR ========== */
+  .cache-bar-container {
+    margin-top: 8px;
+  }
+  .cache-bar {
+    height: 8px;
+    background: var(--bg);
+    border-radius: 4px;
+    overflow: hidden;
+    display: flex;
+  }
+  .cache-bar .hit {
+    height: 100%;
+    background: linear-gradient(90deg, var(--green), #7bed9f);
+    transition: width 0.6s ease;
+    border-radius: 4px 0 0 4px;
+  }
+  .cache-bar .miss {
+    height: 100%;
+    background: linear-gradient(90deg, #ff6b81, var(--red));
+    transition: width 0.6s ease;
+    border-radius: 0 4px 4px 0;
+  }
+  .cache-bar .no-data {
+    height: 100%;
+    background: var(--border);
+    border-radius: 4px;
+    width: 100%;
+  }
+  .cache-legend {
+    display: flex;
+    justify-content: space-between;
+    font-size: 10px;
+    color: var(--dim);
+    margin-top: 5px;
+  }
+  .cache-legend span { display: flex; align-items: center; gap: 4px; }
+  .cache-legend .dot { width: 6px; height: 6px; border-radius: 50%; display: inline-block; }
+  .cache-legend .dot.hit { background: var(--green); }
+  .cache-legend .dot.miss { background: #ff6b81; }
+
+  /* ========== TOKEN DETAILS ========== */
+  .token-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 4px 0;
+    font-size: 12px;
+    border-bottom: 1px solid rgba(42,46,61,0.5);
+  }
+  .token-row:last-child { border-bottom: none; }
+  .token-row .label { color: var(--dim); }
+  .token-row .value { font-weight: 500; font-variant-numeric: tabular-nums; }
+
+  /* ========== HISTORY CHART (mini sparkline) ========== */
+  #sparkline {
+    margin-top: 10px;
+    height: 36px;
+    display: flex;
+    align-items: flex-end;
+    gap: 2px;
+  }
+  #sparkline .bar {
+    flex: 1;
+    background: linear-gradient(180deg, var(--accent), rgba(79,172,254,0.3));
+    border-radius: 2px 2px 0 0;
+    min-height: 2px;
+    transition: height 0.5s ease;
+    position: relative;
+  }
+  #sparkline .bar.cache {
+    background: linear-gradient(180deg, var(--green), rgba(46,213,115,0.3));
+  }
+  .sparkline-label {
+    display: flex;
+    justify-content: space-between;
+    font-size: 9px;
+    color: var(--dim);
+    margin-top: 2px;
+  }
+
+  /* ========== FOOTER ========== */
+  #footer {
+    border-top: 1px solid var(--border);
+    padding: 8px 14px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 10px;
+    color: var(--dim);
+    background: var(--panel);
+  }
+  #footer .refresh-btn {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 4px 10px;
+    color: var(--dim);
+    font-size: 10px;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  #footer .refresh-btn:hover { background: var(--border); color: var(--text); }
+  #footer .refresh-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  /* ========== HIDDEN ========== */
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+
+<div id="floating-window">
+  <!-- Title Bar -->
+  <div id="titlebar">
+    <div class="brand">
+      <svg viewBox="0 0 24 24" fill="none" stroke="url(#g)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <defs><linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#4facfe"/><stop offset="100%" stop-color="#00f2fe"/></linearGradient></defs>
+        <path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/>
+      </svg>
+      <span>DeepSeek Monitor</span>
+    </div>
+    <div id="titlebar-actions">
+      <button class="tb-btn" id="btn-minimize" title="最小化">―</button>
+      <button class="tb-btn" id="btn-close" title="关闭">✕</button>
+    </div>
+  </div>
+
+  <!-- Body -->
+  <div id="body">
+    <!-- API Key Setup -->
+    <div id="setup-section">
+      <h3>🔑 输入 DeepSeek API Key</h3>
+      <div id="key-input-row">
+        <input type="password" id="api-key-input" placeholder="sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" spellcheck="false">
+        <button id="btn-save-key">保存</button>
+      </div>
+    </div>
+
+    <!-- Status -->
+    <div id="status-bar">
+      <div id="status-indicator">
+        <span id="status-dot"></span>
+        <span id="status-text">等待配置</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:6px;">
+        <button id="btn-switch-key" class="tb-btn" title="切换 API Key" style="font-size:10px;padding:0 6px;width:auto;">🔑</button>
+        <span id="last-update"></span>
+      </div>
+    </div>
+
+    <!-- Cards -->
+    <div class="grid-2">
+      <div class="metric-card">
+        <div class="metric-label">💰 余额</div>
+        <div class="metric-value accent" id="balance-val">—</div>
+        <div class="metric-sub" id="balance-sub">等待查询</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">🎯 缓存命中率</div>
+        <div class="metric-value" id="cache-rate-val">—</div>
+        <div class="metric-sub" id="cache-rate-sub">基于最近查询</div>
+      </div>
+    </div>
+
+    <!-- Cache Bar -->
+    <div class="grid-1">
+      <div class="metric-card">
+        <div class="metric-label">📊 缓存命中 vs 未命中</div>
+        <div class="cache-bar-container">
+          <div class="cache-bar">
+            <div class="hit" id="cache-bar-hit" style="width:0%"></div>
+            <div class="miss" id="cache-bar-miss" style="width:0%"></div>
+          </div>
+          <div class="cache-legend">
+            <span><span class="dot hit"></span> 命中 <strong id="cache-hit-tokens">0</strong></span>
+            <span><span class="dot miss"></span> 未命中 <strong id="cache-miss-tokens">0</strong></span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Token Usage -->
+    <div class="grid-1">
+      <div class="metric-card">
+        <div class="metric-label">📝 最近 Token 用量</div>
+        <div id="token-details">
+          <div class="token-row"><span class="label">输入 (Prompt)</span><span class="value" id="t-prompt">—</span></div>
+          <div class="token-row"><span class="label">输出 (Completion)</span><span class="value" id="t-completion">—</span></div>
+          <div class="token-row"><span class="label">总计</span><span class="value" id="t-total">—</span></div>
+          <div class="token-row"><span class="label">缓存命中</span><span class="value green" id="t-cache-hit">—</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Sparkline -->
+    <div class="grid-1" id="history-section">
+      <div class="metric-card">
+        <div class="metric-label">📈 缓存率历史 (最近10次)</div>
+        <div id="sparkline"></div>
+        <div class="sparkline-label"><span>旧</span><span>新</span></div>
+      </div>
+    </div>
+
+    <!-- Error display -->
+    <div id="error-display" style="color:var(--red);font-size:11px;padding:8px;background:rgba(255,71,87,0.08);border-radius:8px;border:1px solid rgba(255,71,87,0.2);margin-bottom:8px;" class="hidden"></div>
+
+    <!-- API Log / Debug -->
+    <div class="grid-1" id="api-log-section">
+      <div class="metric-card" style="padding:8px 12px;">
+        <div class="metric-label" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;cursor:pointer;" id="api-log-toggle">
+          <span>📋 API 调试日志</span>
+          <span id="api-log-badge" style="font-size:9px;background:var(--accent);color:#fff;padding:0 6px;border-radius:4px;">0</span>
+        </div>
+        <div id="api-log-content" style="max-height:220px;overflow-y:auto;font-family:'SFMono-Regular',Consolas,monospace;font-size:10px;line-height:1.6;color:var(--dim);border-top:1px solid var(--border);padding-top:6px;">
+          <div id="api-log-list">
+            <div style="color:var(--dim);padding:4px 0;">等待 API 调用...</div>
+          </div>
+        </div>
+        <div style="display:flex;gap:4px;margin-top:4px;">
+          <button id="btn-clear-log" class="refresh-btn" style="padding:2px 8px;font-size:9px;">清空日志</button>
+          <button id="btn-copy-all-log" class="refresh-btn" style="padding:2px 8px;font-size:9px;">📋 复制全部</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Footer -->
+  <div id="footer">
+    <span id="refresh-countdown">下次刷新: 30s</span>
+    <button class="refresh-btn" id="btn-refresh">⟳ 立即刷新</button>
+  </div>
+</div>
+
+<script>
+(function(){
+  'use strict';
+
+  /* ============ CONFIG ============ */
+  const REFRESH_INTERVAL = 30000;  // 30s
+  const MAX_HISTORY = 10;
+
+  /* ============ STATE ============ */
+  let apiKey = localStorage.getItem('ds_monitor_key') || '';
+  let balanceData = null;
+  let lastUsage = null;          // latest usage from test query
+  let cacheHistory = [];         // array of hit rates
+  let timerId = null;
+  let countdownId = null;
+  let countdown = 30;
+  let isRefreshing = false;
+
+  /* ============ DOM REFS ============ */
+  const $ = id => document.getElementById(id);
+  const keyInput = $('api-key-input');
+  const btnSave = $('btn-save-key');
+  const statusDot = $('status-dot');
+  const statusText = $('status-text');
+  const lastUpdate = $('last-update');
+  const balanceVal = $('balance-val');
+  const balanceSub = $('balance-sub');
+  const cacheRateVal = $('cache-rate-val');
+  const cacheRateSub = $('cache-rate-sub');
+  const cacheBarHit = $('cache-bar-hit');
+  const cacheBarMiss = $('cache-bar-miss');
+  const cacheHitTokens = $('cache-hit-tokens');
+  const cacheMissTokens = $('cache-miss-tokens');
+  const tPrompt = $('t-prompt');
+  const tCompletion = $('t-completion');
+  const tTotal = $('t-total');
+  const tCacheHit = $('t-cache-hit');
+  const sparkline = $('sparkline');
+  const errorDisplay = $('error-display');
+  const refreshBtn = $('btn-refresh');
+  const refreshCountdown = $('refresh-countdown');
+  const setupSection = $('setup-section');
+
+  /* ============ DRAG ============ */
+  let isDragging = false, dragX, dragY, offsetX, offsetY;
+  const win = $('floating-window');
+  const titlebar = $('titlebar');
+
+  titlebar.addEventListener('mousedown', e => {
+    if (e.target.closest('#titlebar-actions')) return;
+    isDragging = true;
+    const rect = win.getBoundingClientRect();
+    offsetX = e.clientX - rect.left;
+    offsetY = e.clientY - rect.top;
+    // Switch to fixed positioning for drag
+    win.style.position = 'fixed';
+    win.style.left = rect.left + 'px';
+    win.style.top = rect.top + 'px';
+    win.style.right = 'auto';
+    win.style.margin = '0';
+    win.style.cursor = 'grabbing';
+  });
+  document.addEventListener('mousemove', e => {
+    if (!isDragging) return;
+    win.style.left = (e.clientX - offsetX) + 'px';
+    win.style.top = (e.clientY - offsetY) + 'px';
+  });
+  document.addEventListener('mouseup', () => {
+    if (isDragging) { isDragging = false; win.style.cursor = ''; }
+  });
+
+  /* ============ MINIMIZE / CLOSE ============ */
+  $('btn-minimize').addEventListener('click', () => {
+    const body = $('body');
+    body.style.display = body.style.display === 'none' ? 'block' : 'none';
+    $('footer').style.display = body.style.display === 'none' ? 'none' : 'flex';
+  });
+  $('btn-close').addEventListener('click', () => {
+    if (confirm('关闭监控窗口？重新打开需双击桌面HTML文件。')) {
+      win.style.display = 'none';
+      if (timerId) clearInterval(timerId);
+    }
+  });
+
+  /* ============ API KEY ============ */
+  function loadKey() {
+    if (apiKey) {
+      keyInput.value = apiKey;
+      setupSection.classList.add('hidden');
+      return true;
+    }
+    return false;
+  }
+
+  keyInput.addEventListener('keydown', e => { if (e.key === 'Enter') btnSave.click(); });
+
+  /* ============ UTILITIES ============ */
+  function setStatus(type, text) {
+    statusDot.className = type;
+    statusText.textContent = text;
+  }
+  function showError(msg) {
+    errorDisplay.textContent = '⚠ ' + msg;
+    errorDisplay.classList.remove('hidden');
+  }
+  function hideError() { errorDisplay.classList.add('hidden'); }
+  function fmtNum(n) { return (n||0).toLocaleString('zh-CN'); }
+  function fmtBalance(bal) {
+    if (bal === null || bal === undefined) return '—';
+    if (typeof bal === 'number') return '$' + bal.toFixed(4);
+    return String(bal);
+  }
+
+  /* ============ API LOG ============ */
+  let logCount = 0;
+  const MAX_LOG = 50;
+  const logToggleBtn = $('api-log-toggle');
+  const logContent = $('api-log-content');
+  const logList = $('api-log-list');
+  const logBadge = $('api-log-badge');
+  let logExpanded = false;
+
+  logToggleBtn.addEventListener('click', () => {
+    logExpanded = !logExpanded;
+    logContent.style.display = logExpanded ? 'block' : 'none';
+    logToggleBtn.querySelector('span:last-child').textContent = logExpanded ? '点击收起' : '点击展开';
+  });
+
+  $('btn-clear-log').addEventListener('click', () => {
+    logList.innerHTML = '<div style="color:var(--dim);padding:4px 0;">日志已清空</div>';
+    logCount = 0;
+    logBadge.textContent = '0';
+  });
+
+  $('btn-copy-all-log').addEventListener('click', () => {
+    const entries = logList.querySelectorAll('pre');
+    let text = '';
+    entries.forEach(pre => { text += pre.textContent + '\n---\n'; });
+    text = text.replace(/\n---\n$/, '');
+    navigator.clipboard.writeText(text).then(() => {
+      const btn = $('btn-copy-all-log');
+      btn.textContent = '✅ 已复制';
+      setTimeout(() => { btn.textContent = '📋 复制全部'; }, 1500);
+    }).catch(() => {
+      alert('复制失败，请手动选择文本复制');
+    });
+  });
+
+  // Copy single log entry
+  function makeLogCopyable(entry, rawData) {
+    entry.style.cursor = 'pointer';
+    entry.title = '点击复制此条日志';
+    entry.addEventListener('click', (e) => {
+      e.stopPropagation();
+      let text = '';
+      if (typeof rawData === 'object') {
+        try { text = JSON.stringify(rawData, null, 2); } catch { text = String(rawData); }
+      } else {
+        text = String(rawData);
+      }
+      navigator.clipboard.writeText(text).then(() => {
+        const orig = entry.style.borderLeft;
+        entry.style.borderLeft = '3px solid var(--accent)';
+        entry.style.paddingLeft = '3px';
+        setTimeout(() => { entry.style.borderLeft = orig; entry.style.paddingLeft = ''; }, 800);
+      }).catch(() => {
+        // Fallback: select text
+        const range = document.createRange();
+        range.selectNodeContents(entry.querySelector('pre') || entry);
+        const sel = window.getSelection();
+        sel.removeAllRanges();
+        sel.addRange(range);
+      });
+    });
+  }
+
+  function addLog(type, title, data) {
+    if (logCount === 0) logList.innerHTML = '';
+    logCount++;
+    logBadge.textContent = logCount;
+    const time = new Date().toLocaleTimeString('zh-CN', { hour12: false });
+    const color = type === 'error' ? 'var(--red)' : type === 'success' ? 'var(--green)' : 'var(--accent)';
+    const entry = document.createElement('div');
+    entry.style.cssText = 'padding:6px 4px;border-bottom:1px solid rgba(42,46,61,0.3);border-radius:4px;transition:all 0.2s;';
+    let dataStr = '';
+    try {
+      dataStr = typeof data === 'object' ? JSON.stringify(data, null, 2).slice(0, 600) : String(data).slice(0, 600);
+    } catch(e) {
+      dataStr = String(data);
+    }
+    entry.innerHTML = `<div style="display:flex;gap:6px;align-items:center;">
+      <span style="color:var(--dim);font-size:9px;">${time}</span>
+      <span style="color:${color};font-size:10px;font-weight:600;">${title}</span>
+      <span style="margin-left:auto;font-size:8px;color:var(--dim);opacity:0.5;">📋</span>
+    </div>
+    <pre style="margin:3px 0 0 0;white-space:pre-wrap;word-break:break-all;color:var(--dim);font-size:9px;line-height:1.4;">${dataStr}</pre>`;
+    makeLogCopyable(entry, data);
+    logList.appendChild(entry);
+    while (logList.children.length > MAX_LOG) logList.removeChild(logList.firstChild);
+    if (logExpanded) logList.parentElement.scrollTop = logList.parentElement.scrollHeight;
+  }
+
+  /* ============ FETCH BALANCE (via local proxy) ============ */
+  async function fetchBalance() {
+    const start = Date.now();
+    addLog('info', '🔄 查询余额...', { url: '/api/balance' });
+    const resp = await fetch('/api/balance', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ apiKey })
+    });
+    const ms = Date.now() - start;
+    if (!resp.ok) {
+      const text = await resp.text();
+      addLog('error', `❌ 余额查询失败 (${resp.status}) ${ms}ms`, text.slice(0, 300));
+      throw new Error(`余额查询失败 (${resp.status}): ${text.slice(0,60)}`);
+    }
+    const data = await resp.json();
+    addLog('success', `✅ 余额 ${ms}ms`, data);
+    return data;
+  }
+
+  /* ============ FETCH TEST CHAT (for cache stats, via local proxy) ============ */
+  async function fetchTestChat() {
+    const start = Date.now();
+    addLog('info', '🔄 测试 API 调用...', { url: '/api/test' });
+    const resp = await fetch('/api/test', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ apiKey })
+    });
+    const ms = Date.now() - start;
+    if (!resp.ok) {
+      const text = await resp.text();
+      addLog('error', `❌ API 测试失败 (${resp.status}) ${ms}ms`, text.slice(0, 300));
+      throw new Error(`API 查询失败 (${resp.status}): ${text.slice(0,60)}`);
+    }
+    const data = await resp.json();
+    // Log usage info specifically
+    if (data.usage) {
+      addLog('success', `✅ API 调用成功 ${ms}ms`, {
+        prompt_tokens: data.usage.prompt_tokens,
+        completion_tokens: data.usage.completion_tokens,
+        total_tokens: data.usage.total_tokens,
+        cache_hit: data.usage.prompt_cache_hit_tokens,
+        cache_miss: data.usage.prompt_cache_miss_tokens
+      });
+    } else if (data.error) {
+      addLog('error', '⚠️ API 返回错误', data.error);
+    } else {
+      addLog('success', `✅ API 已响应 ${ms}ms`, data);
+    }
+    return data;
+  }
+
+  /* ============ UPDATE UI ============ */
+  function updateBalanceUI(data) {
+    if (!data) {
+      balanceVal.textContent = '—';
+      balanceSub.textContent = '查询失败';
+      return;
+    }
+    let bal = 0;
+    let currency = 'USD';
+    let hasToppedUp = false;
+    let totalGranted = 0;
+
+    if (data.balance_infos && Array.isArray(data.balance_infos)) {
+      data.balance_infos.forEach(info => {
+        const g = parseFloat(info.granted_balance) || 0;
+        const t = parseFloat(info.topped_up_balance) || 0;
+        totalGranted += g;
+        bal += t + g;
+        if (t > 0) hasToppedUp = true;
+        if (info.currency) currency = info.currency;
+      });
+      const sym = currency === 'CNY' ? '¥' : '$';
+      balanceVal.textContent = sym + bal.toFixed(2);
+      if (hasToppedUp) {
+        balanceSub.textContent = `充值 ${sym}${bal.toFixed(2)} · 赠送 ${sym}${totalGranted.toFixed(2)}`;
+      } else if (totalGranted > 0) {
+        balanceSub.textContent = `赠送金额 ${sym}${totalGranted.toFixed(2)}`;
+      } else {
+        balanceSub.textContent = `余额 ${sym}${bal.toFixed(2)}`;
+      }
+    } else if (data.balance !== undefined) {
+      balanceVal.textContent = '$' + Number(data.balance).toFixed(4);
+      balanceSub.textContent = `余额 (${data.currency || 'USD'})`;
+    } else {
+      balanceVal.textContent = '—';
+      balanceSub.textContent = '无法解析余额';
+    }
+  }
+
+  function updateCacheUI(usage) {
+    if (!usage) {
+      cacheRateVal.textContent = '—';
+      cacheRateVal.className = 'metric-value';
+      cacheRateSub.textContent = '等待数据';
+      cacheBarHit.style.width = '0%';
+      cacheBarMiss.style.width = '0%';
+      cacheHitTokens.textContent = '0';
+      cacheMissTokens.textContent = '0';
+      return;
+    }
+
+    const hit = usage.prompt_cache_hit_tokens || 0;
+    const miss = usage.prompt_cache_miss_tokens || 0;
+    const total = hit + miss;
+    const rate = total > 0 ? (hit / total) : 0;
+
+    const pct = total > 0 ? (rate * 100).toFixed(1) : '0.0';
+    cacheRateVal.textContent = pct + '%';
+    cacheRateVal.className = 'metric-value' + (total === 0 ? '' : rate >= 0.7 ? ' green' : rate >= 0.3 ? ' yellow' : ' red');
+
+    if (total > 0) {
+      cacheRateSub.textContent = `${fmtNum(total)} 总缓存 Token`;
+    } else {
+      cacheRateSub.textContent = `${fmtNum(miss)} total tokens (首次调用无缓存)`;
+    }
+
+    cacheBarHit.style.width = (total > 0 ? rate * 100 : 0) + '%';
+    cacheBarMiss.style.width = (total > 0 ? (1 - rate) * 100 : 100) + '%';
+
+    cacheHitTokens.textContent = fmtNum(hit);
+    cacheMissTokens.textContent = fmtNum(miss);
+    tPrompt.textContent = fmtNum(usage.prompt_tokens);
+    tCompletion.textContent = fmtNum(usage.completion_tokens);
+    tTotal.textContent = fmtNum(usage.total_tokens);
+    tCacheHit.textContent = fmtNum(hit);
+
+    // Save to history + sparkline
+    cacheHistory.push(rate);
+    if (cacheHistory.length > MAX_HISTORY) cacheHistory.shift();
+    renderSparkline();
+  }
+
+  function renderSparkline() {
+    if (cacheHistory.length === 0) {
+      sparkline.innerHTML = '<div style="color:var(--dim);font-size:10px;width:100%;text-align:center;padding:8px 0;">暂无数据</div>';
+      return;
+    }
+    const max = Math.max(...cacheHistory, 0.01);
+    sparkline.innerHTML = cacheHistory.map(r => {
+      const h = Math.max((r / max) * 100, 5);
+      const cls = r >= 0.5 ? 'bar cache' : 'bar';
+      return `<div class="${cls}" style="height:${h}%" title="${(r*100).toFixed(1)}%"></div>`;
+    }).join('');
+  }
+
+  /* ============ MAIN REFRESH ============ */
+  async function doRefresh() {
+    if (isRefreshing || !apiKey) return;
+    isRefreshing = true;
+    refreshBtn.disabled = true;
+    hideError();
+
+    try {
+      setStatus('loading', '查询中...');
+
+      addLog('info', '🔄 开始刷新...', { time: new Date().toLocaleTimeString() });
+
+      // Fetch balance and test chat in parallel
+      const [balData, chatData] = await Promise.all([
+        fetchBalance().catch(err => { showError('余额: ' + err.message); addLog('error', '❌ 余额请求失败', err.message); return null; }),
+        fetchTestChat().catch(err => { showError('API: ' + err.message); addLog('error', '❌ API 测试请求失败', err.message); return null; })
+      ]);
+
+      // Update balance (with error protection)
+      try {
+        if (balData) balanceData = balData;
+        updateBalanceUI(balData !== null ? balData : balanceData);
+      } catch (uiErr) {
+        addLog('error', '⚠️ 余额 UI 更新异常', uiErr.message);
+        showError('UI 更新: ' + uiErr.message);
+      }
+
+      // Update cache stats (with error protection)
+      try {
+        if (chatData && chatData.usage) {
+          lastUsage = chatData.usage;
+          updateCacheUI(chatData.usage);
+        } else if (chatData && chatData.error) {
+          addLog('error', '⚠️ API 返回错误', chatData.error);
+          showError('API: ' + JSON.stringify(chatData.error).slice(0, 100));
+        }
+      } catch (uiErr) {
+        addLog('error', '⚠️ 缓存 UI 更新异常', uiErr.message);
+      }
+
+      const now = new Date();
+      lastUpdate.textContent = '更新: ' + now.toLocaleTimeString('zh-CN', { hour12: false });
+      setStatus('online', '正常运行');
+      hideError();
+
+    } catch (err) {
+      setStatus('error', '查询失败');
+      showError(err.message);
+      addLog('error', '❌ 整体刷新异常', err.stack || err.message);
+    } finally {
+      isRefreshing = false;
+      refreshBtn.disabled = false;
+      countdown = REFRESH_INTERVAL / 1000;
+    }
+  }
+
+  /* ============ COUNTDOWN ============ */
+  function startCountdown() {
+    countdown = REFRESH_INTERVAL / 1000;
+    if (countdownId) clearInterval(countdownId);
+    countdownId = setInterval(() => {
+      countdown--;
+      refreshCountdown.textContent = `下次刷新: ${countdown}s`;
+      if (countdown <= 0) {
+        doRefresh();
+      }
+    }, 1000);
+  }
+
+  /* ============ INIT ============ */
+  function init() {
+    // Auto-resize window to widget width (works in HTA / popup; ignored in regular browser tabs)
+    try {
+      // Get widget height after layout settles
+      const widgetH = win.offsetHeight + 40; // 40px for body margin
+      window.resizeTo(380, Math.max(widgetH, 500));
+      // If window was made smaller, re-center
+      window.moveTo((screen.width - 380) / 2, 80);
+    } catch(e) { /* silently fail in browsers */ }
+
+    if (loadKey()) {
+      setStatus('loading', '初始化...');
+      doRefresh();
+    } else {
+      setStatus('', '等待配置');
+      statusDot.className = '';
+      keyInput.focus();
+    }
+
+    // Start auto-refresh timer
+    startCountdown();
+
+    // Manual refresh
+    refreshBtn.addEventListener('click', () => {
+      countdown = REFRESH_INTERVAL / 1000;
+      doRefresh();
+    });
+  }
+
+  /* ============ SWITCH API KEY ============ */
+  function showKeyInput() {
+    setupSection.classList.remove('hidden');
+    keyInput.value = apiKey;
+    keyInput.focus();
+    keyInput.select();
+  }
+
+  // Switch key button
+  const switchKeyBtn = $('btn-switch-key');
+  switchKeyBtn.addEventListener('click', showKeyInput);
+
+  // Also keep double-click on status text as fallback
+  statusText.addEventListener('dblclick', showKeyInput);
+
+  // Override save to reset cache on key change
+  btnSave.addEventListener('click', () => {
+    const val = keyInput.value.trim();
+    if (!val || !val.startsWith('sk-')) {
+      showError('API Key 格式错误，应以 sk- 开头');
+      return;
+    }
+    // If key changed, reset all data
+    if (val !== apiKey) {
+      cacheHistory = [];
+      lastUsage = null;
+      balanceData = null;
+      updateCacheUI(null);
+      renderSparkline();
+      balanceVal.textContent = '—';
+      balanceSub.textContent = '等待查询';
+    }
+    apiKey = val;
+    localStorage.setItem('ds_monitor_key', val);
+    setupSection.classList.add('hidden');
+    hideError();
+    setStatus('loading', '验证中...');
+    countdown = REFRESH_INTERVAL / 1000;
+    doRefresh();
+  });
+
+  init();
+})();
+</script>
+</body>
+</html>

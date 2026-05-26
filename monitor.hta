@@ -1,0 +1,664 @@
+﻿<!DOCTYPE html>
+<html>
+<head>
+<hta:application
+  applicationname="DeepSeekMonitor"
+  border="none"
+  caption="no"
+  contextmenu="no"
+  innerborder="no"
+  maximizebutton="no"
+  minimizebutton="no"
+  selection="no"
+  showintaskbar="yes"
+  singleinstance="yes"
+  sysmenu="no"
+  windowstate="normal"
+  width="480"
+  height="780"
+/>
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<title>DS Monitor</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  html, body { width:100%; background:#0f1117; color:#e8eaf0; font-family: 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif; font-size:17px; -ms-user-select:none; user-select:none; }
+  #app { padding:12px 14px 16px 14px; }
+
+  /* Title bar (draggable) */
+  #titlebar {
+    display:block; zoom:1;
+    padding:8px 10px; background:#1a1d28; border-radius:8px; cursor:grab;
+    font-size:16px; font-weight:600; margin-bottom:10px;
+  }
+  #titlebar:after { content:''; display:table; clear:both; }
+  #titlebar .brand-text { float:left; line-height:28px; color:#4facfe; }
+  #title-actions { float:right; }
+  #title-actions button {
+    width:26px; height:26px; border-radius:4px; border:none; cursor:pointer;
+    background:#212430; color:#8a8fa8; font-size:15px; line-height:26px; text-align:center;
+    margin-left:4px;
+  }
+  #title-actions button:hover { background:#2a2e3d; color:#e8eaf0; }
+  #btn-close:hover { background:#ff4757; color:white; }
+
+  /* Status */
+  #status { margin-bottom:10px; font-size:15px; color:#8a8fa8; }
+  #status:after { content:''; display:table; clear:both; }
+  #status-left { float:left; }
+  #dot { display:inline-block; width:9px; height:9px; border-radius:50%; background:#8a8fa8; margin-right:6px; vertical-align:middle; }
+  #dot.ok { background:#2ed573; box-shadow:0 0 6px rgba(46,213,115,0.3); }
+  #dot.err { background:#ff4757; box-shadow:0 0 6px rgba(255,71,87,0.3); }
+  #dot.busy { background:#ffa502; }
+  #status-right { float:right; font-size:14px; color:#8a8fa8; }
+  #status-right span { margin-right:6px; }
+
+  /* Cards */
+  .row2 { margin-bottom:10px; }
+  .row2:after { content:''; display:table; clear:both; }
+  .card {
+    background:#212430; border-radius:8px; padding:12px 14px; border:1px solid #2a2e3d;
+    min-height:58px; margin-bottom:10px;
+  }
+  .card-half { width:49%; float:left; }
+  .card-half + .card-half { margin-left:2%; }
+  .label { font-size:14px; text-transform:uppercase; letter-spacing:0.5px; color:#8a8fa8; margin-bottom:4px; }
+  .value { font-size:28px; font-weight:700; line-height:1.2; }
+  .value.cyan { color:#4facfe; }
+  .value.green { color:#2ed573; }
+  .value.yellow { color:#ffa502; }
+  .value.red { color:#ff4757; }
+  .sub { font-size:14px; color:#8a8fa8; margin-top:3px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+
+  /* Cache bar */
+  .bar-wrap { height:10px; background:#0f1117; border-radius:5px; overflow:hidden; margin-top:6px; }
+  .bar-hit { display:inline-block; vertical-align:top; height:10px; background:#2ed573; }
+  .bar-miss { display:inline-block; vertical-align:top; height:10px; background:#ff6b81; }
+  .bar-legend { margin-top:5px; font-size:13px; color:#8a8fa8; }
+  .bar-legend:after { content:''; display:table; clear:both; }
+  .bar-legend .l { float:left; }
+  .bar-legend .r { float:right; }
+  .bar-legend b { font-weight:600; color:#e8eaf0; }
+
+  /* Token details */
+  .tokens { font-size:15px; color:#8a8fa8; margin-bottom:6px; }
+  .tokens:after { content:''; display:table; clear:both; }
+  .tok-row { padding:5px 0; border-bottom:1px solid rgba(42,46,61,0.5); }
+  .tok-row:last-child { border-bottom:none; }
+  .tok-row:after { content:''; display:table; clear:both; }
+  .tok-label { float:left; }
+  .tok-val { float:right; font-weight:600; color:#e8eaf0; }
+  .tok-val.hit { color:#2ed573; }
+
+  /* API key input */
+  #api-section { display:none; margin-bottom:10px; }
+  #api-section.show { display:block; }
+  #api-section input {
+    width:100%; background:#0f1117; border:1px solid #2a2e3d; border-radius:6px;
+    padding:8px 10px; color:#e8eaf0; font-size:16px; font-family:Consolas,monospace; outline:none;
+  }
+  #api-section input:focus { border-color:#4facfe; }
+  #api-section button {
+    margin-top:6px; background:#4facfe; border:none;
+    border-radius:6px; padding:8px 16px; color:#fff; font-weight:600; font-size:15px; cursor:pointer;
+  }
+  #key-switch {
+    background:#212430; border:1px solid #2a2e3d; border-radius:4px; color:#8a8fa8;
+    padding:3px 8px; font-size:14px; cursor:pointer;
+  }
+
+  /* mini chart */
+  #chart { height:34px; margin-top:6px; white-space:nowrap; }
+  #chart div { display:inline-block; vertical-align:bottom; width:9%; margin-right:1%; background:#4facfe; border-radius:2px 2px 0 0; min-height:2px; }
+  #chart div.cache { background:#2ed573; }
+
+  /* Log panel */
+  #log-section { margin-top:10px; }
+  #log-toggle {
+    background:#212430; border:1px solid #2a2e3d; border-radius:8px;
+    padding:8px 12px; cursor:pointer; font-size:14px; color:#8a8fa8;
+  }
+  #log-toggle:hover { background:#2a2e3d; color:#e8eaf0; }
+  #log-toggle b { color:#4facfe; }
+  #log-content {
+    display:none; background:#0f1117; border:1px solid #2a2e3d; border-radius:8px;
+    margin-top:6px; padding:8px; max-height:200px; overflow-y:auto;
+    font-family:Consolas,monospace; font-size:13px; line-height:1.5; color:#8a8fa8;
+  }
+  #log-content.show { display:block; }
+  .log-entry { padding:3px 0; border-bottom:1px solid rgba(42,46,61,0.3); word-break:break-all; cursor:pointer; }
+  .log-entry:hover { background:rgba(79,172,254,0.05); }
+  .log-time { color:#5a5f70; font-size:11px; }
+  .log-ok { color:#2ed573; }
+  .log-err { color:#ff4757; }
+  .log-info { color:#4facfe; }
+  #log-actions { margin-top:4px; }
+  #log-actions button {
+    background:#212430; border:1px solid #2a2e3d; border-radius:4px; color:#8a8fa8;
+    padding:3px 8px; font-size:12px; cursor:pointer; margin-right:4px;
+  }
+  #log-actions button:hover { background:#2a2e3d; color:#e8eaf0; }
+</style>
+</head>
+<body>
+<div id="app">
+  <!-- Title -->
+  <div id="titlebar">
+    <span class="brand-text">🌊 DS Monitor</span>
+    <div id="title-actions">
+      <button id="key-switch" title="Switch API Key">🔑</button>
+      <button id="btn-close">✕</button>
+    </div>
+  </div>
+
+  <!-- Status -->
+  <div id="status">
+    <div id="status-left">
+      <span id="dot"></span>
+      <span id="status-text">等待配置</span>
+    </div>
+    <div id="status-right">
+      <span id="key-switch-text" style="color:#8a8fa8;cursor:pointer; text-decoration:underline;">🔑 切换Key</span>
+      <span id="update-time"></span>
+    </div>
+  </div>
+
+  <!-- API Key -->
+  <div id="api-section">
+    <input type="password" id="api-key" placeholder="sk-xxx...xxxx">
+    <button id="save-key">保存</button>
+  </div>
+
+  <!-- Main cards -->
+  <div class="row2">
+    <div class="card card-half">
+      <div class="label">💰 余额</div>
+      <div class="value cyan" id="bal-val">—</div>
+      <div class="sub" id="bal-sub"></div>
+    </div>
+    <div class="card card-half">
+      <div class="label">🎯 缓存命中率</div>
+      <div class="value" id="cache-rate">—</div>
+      <div class="sub" id="cache-sub"></div>
+    </div>
+  </div>
+
+  <!-- Cache bar -->
+  <div class="card">
+    <div class="label">📊 缓存</div>
+    <div class="bar-wrap">
+      <span class="bar-hit" id="bar-hit" style="width:0%"></span><span class="bar-miss" id="bar-miss" style="width:100%"></span>
+    </div>
+    <div class="bar-legend">
+      <span class="l">命中 <b id="hit-tokens">0</b></span>
+      <span class="r">未命中 <b id="miss-tokens">0</b></span>
+    </div>
+  </div>
+
+  <!-- Tokens -->
+  <div class="card">
+    <div class="label">📝 Token 用量</div>
+    <div class="tokens">
+      <div class="tok-row"><span class="tok-label">输入</span><span class="tok-val" id="t-prompt">—</span></div>
+      <div class="tok-row"><span class="tok-label">输出</span><span class="tok-val" id="t-comp">—</span></div>
+      <div class="tok-row"><span class="tok-label">总计</span><span class="tok-val" id="t-total">—</span></div>
+      <div class="tok-row"><span class="tok-label">缓存命中</span><span class="tok-val hit" id="t-cache">—</span></div>
+    </div>
+    <div id="chart"></div>
+  </div>
+
+  <!-- Log -->
+  <div id="log-section">
+    <div id="log-toggle">📋 调试日志 <b id="log-count">0</b> 条 — 点击展开</div>
+    <div id="log-content">
+      <div id="log-list"><div style="color:#5a5f70;">等待 API 调用...</div></div>
+      <div id="log-actions">
+        <button id="btn-copy-log">📋 复制全部</button>
+        <button id="btn-clear-log">清空</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  // === Promise polyfill for Trident (IE/HTA doesn't support Promise) ===
+  if (typeof Promise === 'undefined') {
+    window.Promise = function(executor) {
+      var self = this;
+      self.state = 'pending';
+      self.value = undefined;
+      self.callbacks = [];
+      function resolve(val) {
+        if (self.state !== 'pending') return;
+        self.state = 'fulfilled';
+        self.value = val;
+        for (var i = 0; i < self.callbacks.length; i++) self.callbacks[i].onFulfilled(val);
+      }
+      function reject(err) {
+        if (self.state !== 'pending') return;
+        self.state = 'rejected';
+        self.value = err;
+        for (var i = 0; i < self.callbacks.length; i++) self.callbacks[i].onRejected(err);
+      }
+      try { executor(resolve, reject); } catch(e) { reject(e); }
+    };
+    Promise.prototype.then = function(onFulfilled, onRejected) {
+      var self = this;
+      return new Promise(function(resolve, reject) {
+        function handle() {
+          try {
+            if (self.state === 'fulfilled') {
+              var result = onFulfilled ? onFulfilled(self.value) : self.value;
+              if (result && typeof result.then === 'function') result.then(resolve, reject);
+              else resolve(result);
+            } else if (self.state === 'rejected') {
+              if (onRejected) {
+                var result2 = onRejected(self.value);
+                if (result2 && typeof result2.then === 'function') result2.then(resolve, reject);
+                else resolve(result2);
+              } else reject(self.value);
+            }
+          } catch(e) { reject(e); }
+        }
+        if (self.state === 'pending') self.callbacks.push({ onFulfilled: handle, onRejected: handle });
+        else setTimeout(handle, 0);
+      });
+    };
+    Promise.prototype.catch = function(onRejected) { return this.then(null, onRejected); };
+    Promise.resolve = function(val) { return new Promise(function(r) { r(val); }); };
+    Promise.reject = function(err) { return new Promise(function(_, r) { r(err); }); };
+    Promise.all = function(promises) {
+      return new Promise(function(resolve, reject) {
+        var results = [], count = 0;
+        for (var i = 0; i < promises.length; i++) {
+          (function(idx) {
+            promises[idx].then(function(v) { results[idx] = v; count++; if (count === promises.length) resolve(results); }, reject);
+          })(i);
+        }
+      });
+    };
+  }
+
+  // Suppress IE script error popups — show in status instead
+  window.onerror = function(msg, url, line) {
+    try {
+      var st = document.getElementById('status-text');
+      if (st) st.textContent = '脚本错误: ' + String(msg).slice(0, 60);
+    } catch(e) {}
+    return true; // suppress dialog
+  };
+
+  var apiKey = '';
+  var history = [];
+  var REFRESH_INT = 30000;
+  var balData = null;
+  var countdown = 30;
+  var timerId = null;
+  var logCount = 0;
+
+  function addLog(type, title, detail) {
+    var time = new Date().toLocaleTimeString();
+    var cssClass = type === 'ok' ? 'log-ok' : type === 'err' ? 'log-err' : 'log-info';
+    var detailStr = '';
+    try { detailStr = typeof detail === 'object' ? JSON.stringify(detail).slice(0, 500) : String(detail).slice(0, 500); } catch(e) { detailStr = String(detail); }
+    var entry = document.createElement('div');
+    entry.className = 'log-entry';
+    entry.innerHTML = '<span class="log-time">' + time + '</span> <span class="' + cssClass + '">' + title + '</span><br>' + detailStr;
+    if (logCount === 0) dom.logList.innerHTML = '';
+    dom.logList.appendChild(entry);
+    logCount++;
+    while (dom.logList.children.length > 50) dom.logList.removeChild(dom.logList.firstChild);
+    dom.logToggle.innerHTML = '📋 调试日志 <b id="log-count">' + logCount + '</b> 条 — 点击展开';
+    dom.logCount = document.getElementById('log-count');
+    if (dom.logContent.className === 'show') dom.logContent.scrollTop = dom.logContent.scrollHeight;
+  }
+
+  var dom = {};
+  function initDOM() {
+    dom.statusText = document.getElementById('status-text');
+    dom.dot = document.getElementById('dot');
+    dom.updateTime = document.getElementById('update-time');
+    dom.balVal = document.getElementById('bal-val');
+    dom.balSub = document.getElementById('bal-sub');
+    dom.cacheRate = document.getElementById('cache-rate');
+    dom.cacheSub = document.getElementById('cache-sub');
+    dom.barHit = document.getElementById('bar-hit');
+    dom.barMiss = document.getElementById('bar-miss');
+    dom.hitTokens = document.getElementById('hit-tokens');
+    dom.missTokens = document.getElementById('miss-tokens');
+    dom.tPrompt = document.getElementById('t-prompt');
+    dom.tComp = document.getElementById('t-comp');
+    dom.tTotal = document.getElementById('t-total');
+    dom.tCache = document.getElementById('t-cache');
+    dom.chart = document.getElementById('chart');
+    dom.apiSection = document.getElementById('api-section');
+    dom.apiKey = document.getElementById('api-key');
+    dom.saveKey = document.getElementById('save-key');
+    dom.keySwitch = document.getElementById('key-switch');
+    dom.keySwitchText = document.getElementById('key-switch-text');
+    dom.btnClose = document.getElementById('btn-close');
+    dom.titlebar = document.getElementById('titlebar');
+    dom.logToggle = document.getElementById('log-toggle');
+    dom.logContent = document.getElementById('log-content');
+    dom.logList = document.getElementById('log-list');
+    dom.logCount = document.getElementById('log-count');
+    dom.btnCopyLog = document.getElementById('btn-copy-log');
+    dom.btnClearLog = document.getElementById('btn-clear-log');
+
+    // Log panel toggle
+    var logOpen = false;
+    dom.logToggle.onclick = function() {
+      logOpen = !logOpen;
+      dom.logContent.className = logOpen ? 'show' : '';
+      dom.logToggle.innerHTML = '📋 调试日志 <b id="log-count">' + logCount + '</b> 条 — 点击' + (logOpen ? '收起' : '展开');
+      // re-grab logCount ref after innerHTML change
+      dom.logCount = document.getElementById('log-count');
+    };
+    dom.btnCopyLog.onclick = function() {
+      var entries = dom.logList.querySelectorAll('.log-entry');
+      var text = '';
+      for (var i = 0; i < entries.length; i++) {
+        text += (entries[i].textContent || entries[i].innerText) + '\n';
+      }
+      try {
+        var fso2 = new ActiveXObject('Scripting.FileSystemObject');
+        var clipFile = fso2.GetSpecialFolder(2) + '\\ds_log_clip.txt';
+        var f = fso2.CreateTextFile(clipFile, true);
+        f.Write(text);
+        f.Close();
+        dom.logToggle.innerHTML = '📋 调试日志 <b id="log-count">' + logCount + '</b> 条 — 已复制到剪贴板文件';
+        dom.logCount = document.getElementById('log-count');
+      } catch(e) {
+        try { window.clipboardData.setData('Text', text); } catch(e2) {}
+      }
+    };
+    dom.btnClearLog.onclick = function() {
+      dom.logList.innerHTML = '';
+      logCount = 0;
+      dom.logToggle.innerHTML = '📋 调试日志 <b id="log-count">0</b> 条 — 点击展开';
+      dom.logCount = document.getElementById('log-count');
+    };
+
+    // Event bindings
+    dom.btnClose.onclick = function() { window.close(); };
+
+    function showKeyInput() {
+      dom.apiSection.className = 'show';
+      dom.apiKey.value = apiKey;
+      dom.apiKey.focus();
+    }
+    dom.keySwitch.onclick = showKeyInput;
+    dom.keySwitchText.onclick = showKeyInput;
+
+    dom.saveKey.onclick = function() {
+      var val = dom.apiKey.value.trim();
+      if (!val || val.indexOf('sk-') !== 0) {
+        dom.apiKey.style.borderColor = '#ff4757';
+        return;
+      }
+      dom.apiKey.style.borderColor = '#2a2e3d';
+      apiKey = val;
+      saveKey(val);
+      dom.apiSection.className = '';
+      setStatus('busy', '查询中...');
+      history = [];
+      refresh();
+    };
+
+    dom.apiKey.onkeydown = function(e) {
+      e = e || window.event;
+      if (e.keyCode === 13) dom.saveKey.click();
+    };
+  }
+
+  function setStatus(type, text) {
+    dom.dot.className = type || '';
+    dom.statusText.textContent = text;
+  }
+
+  function fmt(n) {
+    return (n || 0).toLocaleString();
+  }
+
+  // Drag
+  function setupDrag() {
+    var isDragging = false, startX, startY, origX, origY;
+    dom.titlebar.onmousedown = function(e) {
+      e = e || window.event;
+      if ((e.target || e.srcElement).tagName === 'BUTTON') return;
+      isDragging = true;
+      startX = e.clientX; startY = e.clientY;
+      origX = window.screenLeft; origY = window.screenTop;
+    };
+    document.onmousemove = function(e) {
+      if (!isDragging) return;
+      e = e || window.event;
+      window.moveTo(origX + e.clientX - startX, origY + e.clientY - startY);
+    };
+    document.onmouseup = function() { isDragging = false; };
+  }
+
+  // === HTA-compatible persistent storage ===
+  function getKeyFilePath() {
+    try {
+      var fso = new ActiveXObject('Scripting.FileSystemObject');
+      var htaPath = window.location.pathname.replace(/^\//, '').replace(/\//g, '\\');
+      return fso.GetParentFolderName(htaPath) + '\\ds_key.dat';
+    } catch(e) { return ''; }
+  }
+
+  function saveKey(key) {
+    try {
+      var fso = new ActiveXObject('Scripting.FileSystemObject');
+      var file = fso.CreateTextFile(getKeyFilePath(), true);
+      file.Write(key);
+      file.Close();
+    } catch(e) {}
+  }
+
+  function loadKey() {
+    try {
+      var fso = new ActiveXObject('Scripting.FileSystemObject');
+      var path = getKeyFilePath();
+      if (path && fso.FileExists(path)) {
+        var file = fso.OpenTextFile(path, 1);
+        var saved = file.ReadAll();
+        file.Close();
+        if (saved && saved.indexOf('sk-') === 0) {
+          apiKey = saved;
+          return true;
+        }
+      }
+    } catch(e) {}
+    return false;
+  }
+
+  // ==== API Calls ====
+  function fetchBalance() {
+    return new Promise(function(resolve, reject) {
+      addLog('info', '🔄 查询余额', 'POST /api/balance');
+      var xhr = new XMLHttpRequest();
+      xhr.open('POST', 'http://127.0.0.1:38899/api/balance', true);
+      xhr.setRequestHeader('Content-Type', 'application/json');
+      xhr.onload = function() {
+        var respText = xhr.responseText || '';
+        if (xhr.status >= 200 && xhr.status < 300) {
+          try {
+            var data = JSON.parse(respText);
+            addLog('ok', '✅ 余额 ' + xhr.status, respText.slice(0, 400));
+            resolve(data);
+          } catch(e) {
+            addLog('err', '❌ 解析失败', respText.slice(0, 200));
+            reject(new Error('Parse error: ' + respText.slice(0, 80)));
+          }
+        } else {
+          addLog('err', '❌ 余额请求失败 ' + xhr.status, respText.slice(0, 300));
+          reject(new Error('HTTP ' + xhr.status + ': ' + respText.slice(0, 80)));
+        }
+      };
+      xhr.onerror = function() {
+        addLog('err', '❌ 网络错误(余额)', '无法连接到 http://127.0.0.1:38899 — 服务器是否已启动？');
+        reject(new Error('Network error'));
+      };
+      xhr.send(JSON.stringify({ apiKey: apiKey }));
+    });
+  }
+
+  function fetchTest() {
+    return new Promise(function(resolve, reject) {
+      addLog('info', '🔄 测试API', 'POST /api/test');
+      var xhr = new XMLHttpRequest();
+      xhr.open('POST', 'http://127.0.0.1:38899/api/test', true);
+      xhr.setRequestHeader('Content-Type', 'application/json');
+      xhr.onload = function() {
+        var respText = xhr.responseText || '';
+        if (xhr.status >= 200 && xhr.status < 300) {
+          try {
+            var data = JSON.parse(respText);
+            if (data.usage) {
+              addLog('ok', '✅ API调用成功', 'hit=' + (data.usage.prompt_cache_hit_tokens||0) + ' miss=' + (data.usage.prompt_cache_miss_tokens||0) + ' total=' + (data.usage.total_tokens||0));
+            } else if (data.error) {
+              addLog('err', '⚠️ API返回错误', JSON.stringify(data.error).slice(0, 300));
+            } else {
+              addLog('ok', '✅ API响应', respText.slice(0, 300));
+            }
+            resolve(data);
+          } catch(e) {
+            addLog('err', '❌ 解析失败', respText.slice(0, 200));
+            reject(new Error('Parse error'));
+          }
+        } else {
+          addLog('err', '❌ API请求失败 ' + xhr.status, respText.slice(0, 300));
+          reject(new Error('HTTP ' + xhr.status));
+        }
+      };
+      xhr.onerror = function() {
+        addLog('err', '❌ 网络错误(API)', '无法连接到 http://127.0.0.1:38899 — 服务器是否已启动？');
+        reject(new Error('Network error'));
+      };
+      xhr.send(JSON.stringify({ apiKey: apiKey }));
+    });
+  }
+
+  function updateBalance(data) {
+    if (!data) {
+      dom.balVal.textContent = '—';
+      dom.balSub.textContent = '';
+      return;
+    }
+    if (data.balance_infos && data.balance_infos.length > 0) {
+      var info = data.balance_infos[0];
+      var total = parseFloat(info.total_balance) || 0;
+      var granted = parseFloat(info.granted_balance) || 0;
+      var topped = parseFloat(info.topped_up_balance) || 0;
+      dom.balVal.textContent = '¥' + total.toFixed(2);
+      if (topped > 0 && granted > 0) {
+        dom.balSub.textContent = '充值 ¥' + topped.toFixed(2) + ' · 赠送 ¥' + granted.toFixed(2);
+      } else if (topped > 0) {
+        dom.balSub.textContent = '充值 ¥' + topped.toFixed(2);
+      } else {
+        dom.balSub.textContent = '赠送 ¥' + granted.toFixed(2);
+      }
+    } else if (data.balance !== undefined) {
+      dom.balVal.textContent = '$' + Number(data.balance).toFixed(4);
+      dom.balSub.textContent = '';
+    } else {
+      dom.balVal.textContent = '—';
+      dom.balSub.textContent = '无法解析';
+    }
+  }
+
+  function updateCache(usage) {
+    var hit = (usage && usage.prompt_cache_hit_tokens) || 0;
+    var miss = (usage && usage.prompt_cache_miss_tokens) || 0;
+    var total = hit + miss;
+    var rate = total > 0 ? hit / total : 0;
+
+    var pct = total > 0 ? (rate * 100).toFixed(1) : '0.0';
+    dom.cacheRate.textContent = pct + '%';
+    dom.cacheRate.className = 'value' + (total === 0 ? '' : rate >= 0.7 ? ' green' : rate >= 0.3 ? ' yellow' : ' red');
+    dom.cacheSub.textContent = total > 0 ? fmt(total) + ' total tokens' : (fmt(miss) + ' tokens (首次无缓存)');
+
+    dom.barHit.style.width = (total > 0 ? rate * 100 : 0) + '%';
+    dom.barMiss.style.width = (total > 0 ? (1 - rate) * 100 : 100) + '%';
+
+    dom.hitTokens.textContent = fmt(hit);
+    dom.missTokens.textContent = fmt(miss);
+
+    dom.tPrompt.textContent = usage ? fmt(usage.prompt_tokens) : '—';
+    dom.tComp.textContent = usage ? fmt(usage.completion_tokens) : '—';
+    dom.tTotal.textContent = usage ? fmt(usage.total_tokens) : '—';
+    dom.tCache.textContent = fmt(hit);
+
+    history.push(rate);
+    if (history.length > 10) history.shift();
+    renderChart();
+  }
+
+  function renderChart() {
+    dom.chart.innerHTML = '';
+    if (history.length === 0) return;
+    var max = Math.max.apply(null, history);
+    for (var i = 0; i < history.length; i++) {
+      var bar = document.createElement('div');
+      bar.style.height = Math.max(history[i] / (max || 0.01) * 100, 5) + '%';
+      if (history[i] >= 0.5) bar.className = 'cache';
+      dom.chart.appendChild(bar);
+    }
+  }
+
+  function refresh() {
+    if (!apiKey) return;
+    try {
+      fetchBalance().then(function(data) {
+        try { balData = data; updateBalance(data); } catch(e) { addLog('err', '更新余额UI失败', e.message || e); }
+      }).catch(function(err) {
+        addLog('err', '余额查询失败', err.message || err);
+      });
+
+      fetchTest().then(function(data) {
+        try {
+          if (data && data.usage) updateCache(data.usage);
+          setStatus('ok', '运行中');
+          dom.updateTime.textContent = new Date().toLocaleTimeString();
+        } catch(e) { addLog('err', '更新缓存UI失败', e.message || e); }
+      }).catch(function(err) {
+        try { setStatus('err', '查询失败'); } catch(e) {}
+        addLog('err', 'API测试失败', err.message || err);
+      });
+    } catch(topErr) { addLog('err', '刷新异常', topErr.message || topErr); }
+  }
+
+  // === Init ===
+  function init() {
+    initDOM();
+    setupDrag();
+
+    // Window size is set in <hta:application> tag above — no resizeTo needed
+
+    if (!loadKey()) {
+      setStatus('', '输入 API Key');
+      dom.apiSection.className = 'show';
+      dom.apiKey.focus();
+    } else {
+      setStatus('busy', '初始化...');
+      refresh();
+    }
+
+    // Auto refresh (error-safe)
+    timerId = setInterval(function() {
+      try {
+        countdown--;
+        if (countdown <= 0) {
+          countdown = REFRESH_INT / 1000;
+          refresh();
+        }
+      } catch(e) {}
+    }, 1000);
+  }
+
+  init();
+})();
+</script>
+</body>
+</html>
